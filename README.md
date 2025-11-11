@@ -1,7 +1,7 @@
-# CMPE 275 Mini-Project 2: Fire Query System
+# CMPE 275 Mini-Project 2
 
-**Course:** CMPE 275 - Enterprise Application Development
-**Project:** Multi-Process Distributed Query System with gRPC and Shared Memory
+- **Course:** CMPE 275 - Enterprise Application Development
+- **Project:** Multi-Process Distributed Query System with gRPC and Shared Memory
 
 ---
 
