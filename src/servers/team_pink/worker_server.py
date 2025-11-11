@@ -27,7 +27,15 @@ class WorkerServiceImpl(fire_query_pb2_grpc.FireQueryServiceServicer):
         self.config = config
         self.process_id = config['process_id']
         self.team = config['team']
-        self.data_path = config['data_path']
+
+        # Check for FIRE_DATA_PATH environment variable first, then fall back to config
+        env_data_path = os.getenv('FIRE_DATA_PATH')
+        if env_data_path:
+            self.data_path = env_data_path
+            print(f"Using data path from FIRE_DATA_PATH env: {self.data_path}")
+        else:
+            self.data_path = config['data_path']
+
         self.owned_dates = config['data_partitioning']['owned_dates']
         self.chunk_size = config['chunk_config']['default_chunk_size']
         self.pending_requests = 0

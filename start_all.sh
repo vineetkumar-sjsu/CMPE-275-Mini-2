@@ -10,6 +10,12 @@ BUILD_DIR="${BASE_DIR}/build"
 CONFIG_DIR="${BASE_DIR}/configs"
 LOG_DIR="${BASE_DIR}/logs"
 
+# Set FIRE_DATA_PATH environment variable if not already set
+if [ -z "$FIRE_DATA_PATH" ]; then
+    export FIRE_DATA_PATH="${BASE_DIR}/fire-data"
+    echo "Set FIRE_DATA_PATH=${FIRE_DATA_PATH}"
+fi
+
 # Create logs directory
 mkdir -p ${LOG_DIR}
 

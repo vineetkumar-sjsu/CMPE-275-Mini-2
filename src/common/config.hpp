@@ -7,6 +7,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 // Simple JSON parser (minimal implementation for this project)
 // In production, would use nlohmann/json or similar
@@ -62,7 +63,16 @@ public:
         config.role = extractString(content, "role");
         config.listen_host = extractString(content, "listen_host");
         config.listen_port = extractInt(content, "listen_port");
-        config.data_path = extractString(content, "data_path");
+
+        // Check for FIRE_DATA_PATH environment variable first, then fall back to config
+        const char* env_data_path = std::getenv("FIRE_DATA_PATH");
+        if (env_data_path != nullptr && std::string(env_data_path).length() > 0) {
+            config.data_path = std::string(env_data_path);
+            std::cout << "Using data path from FIRE_DATA_PATH env: " << config.data_path << std::endl;
+        } else {
+            config.data_path = extractString(content, "data_path");
+        }
+
         config.team = extractString(content, "\"team\"");
         config.is_team_leader = extractBool(content, "is_team_leader");
 
