@@ -3,7 +3,9 @@
 # Start all processes for Fire Query System
 # This script starts all 6 processes in the background
 
-BASE_DIR="/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2"
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+BASE_DIR="${SCRIPT_DIR}"
 BUILD_DIR="${BASE_DIR}/build"
 CONFIG_DIR="${BASE_DIR}/configs"
 LOG_DIR="${BASE_DIR}/logs"

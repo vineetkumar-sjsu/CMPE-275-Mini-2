@@ -3,7 +3,7 @@
   "role": "team_leader",
   "listen_host": "0.0.0.0",
   "listen_port": 50052,
-  "data_path": "/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2/fire-data",
+  "data_path": "/absolute/path/to/fire-data",
   "team": "green",
   "is_team_leader": true,
   "edges": [

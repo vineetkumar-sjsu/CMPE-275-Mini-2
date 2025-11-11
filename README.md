@@ -1,6 +1,5 @@
 # CMPE 275 Mini-Project 2: Fire Query System
 
-**Student Name:** Vineet Kumar
 **Course:** CMPE 275 - Enterprise Application Development
 **Project:** Multi-Process Distributed Query System with gRPC and Shared Memory
 
@@ -116,10 +115,10 @@ Update the `data_path` in all configuration files to point to your local reposit
 
 ```bash
 # Update all 6 config files with your absolute path
-sed -i '' "s|/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2/fire-data|$(pwd)/fire-data|g" configs/*.json
+sed -i '' "s|/absolute/path/to/fire-data|$(pwd)/fire-data|g" configs/*.json
 ```
 
-Or manually edit `configs/process_a.json` through `configs/process_f.json` and update the `"data_path"` field to your absolute path.
+Or manually edit `configs/process_a.json` through `configs/process_f.json` and update the `"data_path"` field from `/absolute/path/to/fire-data` to your actual absolute path.
 
 **Note:** The fire-data directory contains 43 days of California wildfire air quality data (Aug 10 - Sep 24, 2020) with 516 CSV files (~180MB total).
 
@@ -478,7 +477,7 @@ pip install grpcio grpcio-tools protobuf
 **Solution:**
 ```bash
 # Verify fire data directory exists
-ls -la /Users/vineetkia/SJSU/Projects/CMPE-275/fire/
+ls -la fire-data/
 
 # Check process logs for errors
 cat logs/process_*.log
@@ -543,7 +542,6 @@ Potential improvements for production deployment:
 
 ## Contact Information
 
-**Student:** Vineet Kumar
 **Course:** CMPE 275 - Enterprise Application Development
 **Semester:** Fall 2025
 **GitHub:** https://github.com/vineetkumar-sjsu/CMPE-275-Mini-2
