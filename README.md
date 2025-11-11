@@ -110,36 +110,18 @@ git clone git@github.com:vineetkumar-sjsu/CMPE-275-Mini-2.git
 cd CMPE-275-Mini-2
 ```
 
-### Step 2: Set Up Fire Data
+### Step 2: Update Configuration Files
 
-The system requires California wildfire air quality data organized by date. You need to:
+Update the `data_path` in all configuration files to point to your local repository path:
 
-1. **Create a data directory** (or use an existing one):
-   ```bash
-   mkdir -p fire-data
-   ```
+```bash
+# Update all 6 config files with your absolute path
+sed -i '' "s|/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2/fire-data|$(pwd)/fire-data|g" configs/*.json
+```
 
-2. **Obtain the dataset** with the following structure:
-   ```
-   fire-data/
-   ├── 20200810/
-   │   ├── 20200810-01.csv
-   │   ├── 20200810-03.csv
-   │   └── ... (12 CSV files per date)
-   ├── 20200814/
-   ├── ... (43 date directories total)
-   └── 20200924/
-   ```
+Or manually edit `configs/process_a.json` through `configs/process_f.json` and update the `"data_path"` field to your absolute path.
 
-3. **Update configuration files** with your data path:
-   ```bash
-   # Edit all 6 config files to point to your data directory
-   sed -i '' 's|/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2/fire-data|/YOUR/PATH/TO/fire-data|g' configs/*.json
-   ```
-
-   Or manually edit `configs/process_a.json` through `configs/process_f.json` and update the `"data_path"` field.
-
-**Note:** The data directory is not included in this repository due to size. You must provide your own dataset or use the one provided by the instructor.
+**Note:** The fire-data directory contains 43 days of California wildfire air quality data (Aug 10 - Sep 24, 2020) with 516 CSV files (~180MB total).
 
 ### Step 3: Generate Protocol Buffer Code
 
