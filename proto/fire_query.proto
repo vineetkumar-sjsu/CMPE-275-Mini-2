@@ -1,0 +1,103 @@
+syntax = "proto3";
+option java_multiple_files = true;
+option optimize_for = SPEED;
+package firequery;
+
+// Fire data query and response service with chunked streaming support
+service FireQueryService {
+   // Client-initiated query with server-side streaming response
+   rpc QueryFire(QueryRequest) returns (stream QueryResponse) {}
+
+   // Health check for process availability
+   rpc HealthCheck(HealthRequest) returns (HealthResponse) {}
+
+   // Internal delegation between processes (leader to team leaders)
+   rpc DelegateQuery(DelegationRequest) returns (stream DelegationResponse) {}
+
+   // Request cancellation
+   rpc CancelQuery(CancelRequest) returns (CancelResponse) {}
+}
+
+// Query request from client to leader (process A)
+message QueryRequest {
+  string request_id = 1;
+  string date_start = 2;     // YYYYMMDD format
+  string date_end = 3;       // YYYYMMDD format
+  double latitude_min = 4;
+  double latitude_max = 5;
+  double longitude_min = 6;
+  double longitude_max = 7;
+  string pollutant_type = 8; // PM2.5, PM10, OZONE, etc.
+  int32 max_records = 9;     // Optional limit
+  int32 chunk_size = 10;     // Requested chunk size (records per chunk)
+}
+
+// Individual fire data record with realistic types (NOT just strings!)
+message FireRecord {
+  double latitude = 1;
+  double longitude = 2;
+  string timestamp = 3;      // ISO format: 2020-08-10T01:00
+  string pollutant = 4;      // PM2.5, PM10, OZONE
+  double concentration = 5;  // Measured value
+  string unit = 6;           // UG/M3, PPB
+  double raw_concentration = 7;
+  int32 aqi = 8;             // Air Quality Index
+  int32 aqi_category = 9;    // 1-6 category
+  string site_name = 10;
+  string agency = 11;
+  string site_id = 12;
+  string full_site_id = 13;
+}
+
+// Chunked response from server to client
+message QueryResponse {
+  string request_id = 1;
+  int32 chunk_number = 2;      // 0-indexed chunk number
+  int32 total_chunks = 3;      // -1 if unknown, final value in last chunk
+  repeated FireRecord records = 4;
+  bool is_final = 5;           // True for last chunk
+  int32 total_records = 6;     // Total across all chunks (only in final chunk)
+  string source_process = 7;   // Which process generated this chunk (A-F)
+  int64 processing_time_ms = 8;
+}
+
+// Internal delegation from leader to team leaders
+message DelegationRequest {
+  string request_id = 1;
+  bytes original_query = 2;   // Serialized QueryRequest
+  string delegating_process = 3; // A, B, or E
+  repeated string target_dates = 4; // Dates this team should handle
+}
+
+// Response from team leader/worker back to delegating process
+message DelegationResponse {
+  string request_id = 1;
+  int32 chunk_number = 2;
+  repeated FireRecord records = 3;
+  bool is_final = 4;
+  string responding_process = 5; // B, C, D, E, or F
+}
+
+// Health check messages
+message HealthRequest {
+  string requesting_process = 1;
+}
+
+message HealthResponse {
+  string responding_process = 1;
+  bool is_healthy = 2;
+  int32 pending_requests = 3;
+  int32 active_workers = 4;
+}
+
+// Cancellation messages
+message CancelRequest {
+  string request_id = 1;
+  string requesting_process = 2;
+}
+
+message CancelResponse {
+  string request_id = 1;
+  bool cancelled = 2;
+  string message = 3;
+}

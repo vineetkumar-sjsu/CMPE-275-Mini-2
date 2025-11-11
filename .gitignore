@@ -1,0 +1,108 @@
+# Build directories
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Generated protobuf files
+proto/generated/
+*.pb.cc
+*.pb.h
+*_pb2.py
+*_pb2_grpc.py
+*_pb2.pyi
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files
+logs/*.log
+*.log
+
+# Compiled Object files
+*.o
+*.obj
+*.elf
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+leader_server
+team_leader_server
+worker_server
+fire_client
+
+# Core dumps
+core
+core.*
+
+# Shared memory segments
+/dev/shm/*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Package manager files
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Distribution / packaging
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# Documentation build
+docs/_build/

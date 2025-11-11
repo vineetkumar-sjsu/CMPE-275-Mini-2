@@ -1,0 +1,27 @@
+{
+  "process_id": "D",
+  "role": "team_leader",
+  "listen_host": "0.0.0.0",
+  "listen_port": 50054,
+  "data_path": "/Users/vineetkia/SJSU/Projects/CMPE-275/mini-2/fire-data",
+  "team": "pink",
+  "is_team_leader": true,
+  "edges": [
+    {
+      "to": "B",
+      "host": "localhost",
+      "port": 50052,
+      "relationship": "peer_team_leader",
+      "team": "green"
+    }
+  ],
+  "data_partitioning": {
+    "strategy": "date_range",
+    "owned_dates": ["20200902", "20200903", "20200904", "20200905", "20200906", "20200907"]
+  },
+  "chunk_config": {
+    "default_chunk_size": 500,
+    "max_chunk_size": 2000,
+    "min_chunk_size": 100
+  }
+}
