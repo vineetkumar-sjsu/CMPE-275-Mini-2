@@ -1,6 +1,4 @@
-# CMPE 275 Mini-Project 2
-
-- **Course:** CMPE 275 - Enterprise Application Development
+# CMPE 275 Mini Project 2
 - **Project:** Multi-Process Distributed Query System with gRPC and Shared Memory
 
 ---
