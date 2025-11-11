@@ -109,36 +109,30 @@ git clone git@github.com:vineetkumar-sjsu/CMPE-275-Mini-2.git
 cd CMPE-275-Mini-2
 ```
 
-### Step 2: Configure Data Path
+### Step 2: Configure Data Path (Optional - Auto-configured!)
 
-The system needs to know where to find the fire data. You have **three options**:
+**🎉 No action needed!** The `start_all.sh` script automatically sets `FIRE_DATA_PATH` for you.
 
-**Option A: Use Environment Variable (Recommended)**
+The system uses a priority order for finding data:
+1. **FIRE_DATA_PATH** environment variable (auto-set by start_all.sh)
+2. **data_path** from config files (fallback: `./fire-data`)
+
+If you want to use a custom data location, you can set the environment variable:
+
 ```bash
-# Option A1: Let start_all.sh set it automatically (easiest!)
-# Just run ./start_all.sh - it will auto-detect the fire-data directory
+# Option 1: Set manually
+export FIRE_DATA_PATH=/path/to/your/fire-data
 
-# Option A2: Set it manually in your shell
-export FIRE_DATA_PATH=$(pwd)/fire-data
-
-# Option A3: Create a .env file (optional)
+# Option 2: Use .env file
 cp .env.example .env
-# Edit .env and set FIRE_DATA_PATH, then source it:
+# Edit .env and set FIRE_DATA_PATH, then:
 source .env
+
+# Option 3: Update config files (not recommended)
+# Edit configs/process_*.json and change "data_path" field
 ```
 
-The `start_all.sh` script will automatically set `FIRE_DATA_PATH` if not already defined, so **no action needed** if using the start script!
-
-**Option B: Update Configuration Files**
-```bash
-# Update all 6 config files with your absolute path
-sed -i '' "s|/absolute/path/to/fire-data|$(pwd)/fire-data|g" configs/*.json
-```
-
-**Option C: Manual Edit**
-Edit `configs/process_a.json` through `configs/process_f.json` and update the `"data_path"` field.
-
-**Note:** The fire-data directory contains 43 days of California wildfire air quality data (Aug 10 - Sep 24, 2020) with 516 CSV files (~180MB total). The system checks for `FIRE_DATA_PATH` environment variable first, then falls back to the config file path.
+**Note:** The fire-data directory contains 43 days of California wildfire air quality data (Aug 10 - Sep 24, 2020) with 516 CSV files (~180MB total).
 
 ### Step 3: Generate Protocol Buffer Code
 

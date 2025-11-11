@@ -3,7 +3,7 @@
   "role": "worker",
   "listen_host": "0.0.0.0",
   "listen_port": 50056,
-  "data_path": "/absolute/path/to/fire-data",
+  "data_path": "./fire-data",
   "team": "pink",
   "is_team_leader": false,
   "edges": [],
