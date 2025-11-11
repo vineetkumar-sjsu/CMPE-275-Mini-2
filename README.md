@@ -384,13 +384,17 @@ CMPE-275-Mini-2/
 │   ├── process_d.json
 │   ├── process_e.json
 │   └── process_f.json
+├── fire-data/                        # Fire sensor data (43 date dirs, 516 CSV files)
 ├── logs/                             # Runtime log files (generated)
 ├── build/                            # Build artifacts (generated)
 ├── CMakeLists.txt                    # CMake build configuration
 ├── generate_proto.sh                 # Protocol buffer generation script
+├── build.sh                          # Build all components (C++ and Python)
 ├── start_all.sh                      # Start all 6 processes
 ├── stop_all.sh                       # Stop all processes
+├── clean.sh                          # Clean all build artifacts
 ├── requirements.txt                  # Python dependencies
+├── .env.example                      # Environment variable template
 ├── .gitignore                        # Git ignore rules
 └── README.md                         # This file
 ```
@@ -499,6 +503,29 @@ ls -la fire-data/
 
 # Check process logs for errors
 cat logs/process_*.log
+```
+
+### Issue: Build issues or want a clean slate
+
+**Solution:**
+```bash
+# Use the clean script to remove all build artifacts
+./clean.sh
+
+# This removes:
+# - build/ directory
+# - Generated protobuf files (C++ and Python)
+# - Python cache (__pycache__, *.pyc)
+# - Log files
+# - Compiled objects (*.o, *.so, *.dylib)
+# - CMake cache files
+# - Temporary files
+
+# Then rebuild from scratch:
+./generate_proto.sh
+mkdir build && cd build && cmake .. && make -j4 && cd ..
+# Or simply:
+./build.sh
 ```
 
 ---
