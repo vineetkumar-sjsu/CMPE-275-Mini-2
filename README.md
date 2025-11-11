@@ -582,25 +582,3 @@ Potential improvements for production deployment:
 4. **Authentication**: Secure gRPC with SSL/TLS certificates
 5. **Container Deployment**: Docker and Kubernetes support
 6. **Load Balancing**: Dynamic work distribution based on process load
-
----
-
-## Contact Information
-
-**Course:** CMPE 275 - Enterprise Application Development
-**Semester:** Fall 2025
-**GitHub:** https://github.com/vineetkumar-sjsu/CMPE-275-Mini-2
-
----
-
-## References
-
-- gRPC Documentation: https://grpc.io/docs/
-- Protocol Buffers Guide: https://protobuf.dev/
-- CMake Tutorial: https://cmake.org/cmake/help/latest/guide/tutorial/
-- POSIX Shared Memory: https://man7.org/linux/man-pages/man7/shm_overview.7.html
-
----
-
-**Last Updated:** November 10, 2025
-**System Status:** Production Ready ✅
