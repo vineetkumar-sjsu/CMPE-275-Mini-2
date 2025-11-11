@@ -566,13 +566,8 @@ Log files in `logs/` directory provide complete execution traces.
 
 ---
 
-## Future Enhancements
-
-Potential improvements for production deployment:
+## Pending Enhancements
 
 1. **Fault Tolerance**: Worker failover and retry logic
 2. **Query Optimization**: Predicate pushdown, query caching
-3. **Monitoring Dashboard**: Real-time process health visualization
-4. **Authentication**: Secure gRPC with SSL/TLS certificates
-5. **Container Deployment**: Docker and Kubernetes support
-6. **Load Balancing**: Dynamic work distribution based on process load
+3. **Load Balancing**: Dynamic work distribution based on process load
