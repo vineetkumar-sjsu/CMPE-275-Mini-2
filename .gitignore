@@ -34,7 +34,7 @@ ENV/
 .DS_Store
 **/.DS_Store
 
-# Environment variables (but keep .env.example)
+# Environment variables
 .env
 
 # Log files

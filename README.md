@@ -49,6 +49,16 @@ The system processes California wildfire air quality sensor data from **August 1
 
 ---
 
+## Quick Navigation
+
+📚 **Choose Your Deployment Scenario:**
+
+- **[Single-Host Deployment](#running-the-system)** - Run all 6 processes on one machine (easiest for testing/demo)
+- **[Multi-Host Deployment (2 Hosts)](#deployment-scenario-1-two-host-setup)** - Distribute processes across 2 machines
+- **[Multi-Host Deployment (3 Hosts)](#deployment-scenario-2-three-host-setup)** - Distribute processes across 3 machines
+
+---
+
 ## Technology Stack
 
 | Component | Technology | Version |
@@ -118,15 +128,10 @@ The system uses a priority order for finding data:
 If you want to use a custom data location, you can set the environment variable:
 
 ```bash
-# Option 1: Set manually
+# Option 1: Set manually (recommended)
 export FIRE_DATA_PATH=/path/to/your/fire-data
 
-# Option 2: Use .env file
-cp .env.example .env
-# Edit .env and set FIRE_DATA_PATH, then:
-source .env
-
-# Option 3: Update config files (not recommended)
+# Option 2: Update config files
 # Edit configs/process_*.json and change "data_path" field
 ```
 
@@ -179,7 +184,9 @@ mkdir -p logs
 
 ---
 
-## Running the System
+## Running the System (Single-Host Deployment)
+
+This section covers running all 6 processes on a **single machine**. For multi-host deployment, see [Multi-Host Deployment](#multi-host-deployment).
 
 ### Step 1: Start All 6 Processes
 
@@ -212,7 +219,7 @@ You should see **6 processes** running on ports 50051-50056.
 ### Step 2: Run Test Query - Small Dataset (1,000 records)
 
 ```bash
-./build/fire_client localhost 50051 20200810 20200815 PM2.5 1000 500
+./build/fire_client localhost:50051 --start 20200810 --end 20200815 --pollutant PM2.5 --max 1000 --chunk 500
 ```
 
 **Expected Output:**
@@ -253,10 +260,10 @@ Sample Record:
 ========================================
 ```
 
-### Step 3: Run Test Query - Large Dataset (20,000 records)
+### Step 3: Run Test Query - Large Dataset (All dates, all pollutants)
 
 ```bash
-./build/fire_client localhost 50051 20200810 20200924 PM2.5 50000 500
+./build/fire_client localhost:50051 --start 20200810 --end 20200924
 ```
 
 **Expected Output:**
@@ -310,6 +317,439 @@ Stopped Process F (PID: XXXXX)
 
 All processes stopped.
 ```
+
+---
+
+## Multi-Host Deployment
+
+This section provides detailed instructions for deploying the Fire Query System across multiple physical machines (2-3 hosts).
+
+### Prerequisites for Multi-Host Setup
+
+1. **Network Connectivity**
+   - All hosts must be on the same network or have routable connectivity
+   - Firewall ports 50051-50056 must be open for incoming TCP connections
+   - SSH access to all hosts (for deployment)
+
+2. **Software Requirements** (on each host)
+   - Same prerequisites as single-host (C++ compiler, CMake, gRPC, Python)
+   - Synchronized data directory across hosts (use rsync or shared filesystem)
+
+3. **Network Information Needed**
+   - IP address or hostname of each machine
+   - Ensure hostnames resolve correctly (add to `/etc/hosts` if needed)
+
+### Deployment Scenario 1: Two-Host Setup
+
+**Recommended Process Distribution:**
+- **Host 1** (Primary): Process A (Leader) + Process B (Team Green Leader) + Process C (Worker)
+- **Host 2** (Secondary): Process D (Team Pink Leader) + Process E (Team Pink Leader) + Process F (Python Worker)
+
+#### Step 1: Prepare Both Hosts
+
+On **both Host 1 and Host 2**, clone the repository and build:
+
+```bash
+# On each host
+git clone <repository-url>
+cd CMPE-275-Mini-2
+
+# Build the system
+./generate_proto.sh
+mkdir build && cd build && cmake .. && make -j4 && cd ..
+mkdir -p logs
+```
+
+#### Step 2: Synchronize Fire Data
+
+Ensure fire-data is available on both hosts. You can either:
+
+**Option A: Copy data to each host**
+```bash
+# On Host 2 (from Host 1)
+rsync -avz user@host1:/path/to/CMPE-275-Mini-2/fire-data/ ./fire-data/
+```
+
+**Option B: Use shared filesystem** (NFS, etc.)
+
+#### Step 3: Update Configuration Files
+
+On **Host 1**, update the following config files to point to Host 2's IP:
+
+**Edit `configs/process_a.json`** (Leader needs to connect to Process E on Host 2):
+```json
+{
+  "process_id": "A",
+  "role": "leader",
+  "port": 50051,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "B",
+      "host": "localhost",
+      "port": 50052
+    },
+    {
+      "process_id": "E",
+      "host": "192.168.1.102",  // ← Change to Host 2's IP
+      "port": 50055
+    }
+  ]
+}
+```
+
+**Edit `configs/process_b.json`** (Team Green Leader needs to connect to Worker C locally):
+```json
+{
+  "process_id": "B",
+  "role": "team_leader",
+  "team": "green",
+  "port": 50052,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "C",
+      "host": "localhost",  // ← C is on same host
+      "port": 50053
+    }
+  ],
+  "data_partition": ["20200810", "20200811", ..., "20200822"]
+}
+```
+
+On **Host 2**, update the following config files:
+
+**Edit `configs/process_e.json`** (Team Pink Leader needs to connect to Worker F locally):
+```json
+{
+  "process_id": "E",
+  "role": "team_leader",
+  "team": "pink",
+  "port": 50055,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "D",
+      "host": "localhost",
+      "port": 50054
+    },
+    {
+      "process_id": "F",
+      "host": "localhost",  // ← F is on same host
+      "port": 50056
+    }
+  ],
+  "data_partition": ["20200908", "20200909", ..., "20200913"]
+}
+```
+
+#### Step 4: Configure Firewall Rules
+
+On **both hosts**, open the required ports:
+
+**For Ubuntu/Debian:**
+```bash
+# On Host 1 (ports for A, B, C)
+sudo ufw allow 50051/tcp
+sudo ufw allow 50052/tcp
+sudo ufw allow 50053/tcp
+
+# On Host 2 (ports for D, E, F)
+sudo ufw allow 50054/tcp
+sudo ufw allow 50055/tcp
+sudo ufw allow 50056/tcp
+```
+
+**For macOS:**
+```bash
+# Check firewall status
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+
+# If enabled, add exceptions in System Preferences > Security & Privacy > Firewall
+```
+
+**For RHEL/CentOS:**
+```bash
+# On Host 1
+sudo firewall-cmd --permanent --add-port=50051-50053/tcp
+sudo firewall-cmd --reload
+
+# On Host 2
+sudo firewall-cmd --permanent --add-port=50054-50056/tcp
+sudo firewall-cmd --reload
+```
+
+#### Step 5: Start Processes on Host 2 First
+
+On **Host 2**, start the Pink team processes:
+
+```bash
+cd CMPE-275-Mini-2
+
+# Start Process D (Team Pink Leader)
+./build/team_leader_server ./configs/process_d.json > logs/process_d.log 2>&1 &
+
+# Start Process E (Team Pink Leader)
+./build/team_leader_server ./configs/process_e.json > logs/process_e.log 2>&1 &
+
+# Start Process F (Python Worker)
+python3 src/servers/team_pink/worker_server.py ./configs/process_f.json > logs/process_f.log 2>&1 &
+
+# Verify processes are running
+ps aux | grep -E "(team_leader_server|worker_server)" | grep -v grep
+```
+
+#### Step 6: Start Processes on Host 1
+
+On **Host 1**, start the Leader and Green team processes:
+
+```bash
+cd CMPE-275-Mini-2
+
+# Start Process A (Leader)
+./build/leader_server ./configs/process_a.json > logs/process_a.log 2>&1 &
+
+# Wait 3 seconds for shared memory creation
+sleep 3
+
+# Start Process B (Team Green Leader)
+./build/team_leader_server ./configs/process_b.json > logs/process_b.log 2>&1 &
+
+# Start Process C (Worker)
+./build/worker_server ./configs/process_c.json > logs/process_c.log 2>&1 &
+
+# Verify processes are running
+ps aux | grep -E "(leader_server|team_leader_server|worker_server)" | grep -v grep
+```
+
+#### Step 7: Run Test Query from Client
+
+On **Host 1** (or any machine with network access to Host 1):
+
+```bash
+# Small query
+./build/fire_client 192.168.1.101:50051 --start 20200810 --end 20200815 --max 1000
+
+# Full query spanning both hosts
+./build/fire_client 192.168.1.101:50051 --start 20200810 --end 20200924
+```
+
+**Expected Output:** You should see records from processes on both hosts:
+```
+Records by Process:
+  Process B: XXXXX records (Host 1)
+  Process C: XXXXX records (Host 1)
+  Process D: XXXXX records (Host 2)
+  Process E: XXXXX records (Host 2)
+  Process F: XXXXX records (Host 2 - Python)
+```
+
+---
+
+### Deployment Scenario 2: Three-Host Setup
+
+**Recommended Process Distribution:**
+- **Host 1** (Leader): Process A (Leader) only
+- **Host 2** (Green Team): Process B (Team Green Leader) + Process C (Worker)
+- **Host 3** (Pink Team): Process D (Team Pink Leader) + Process E (Team Pink Leader) + Process F (Python Worker)
+
+#### Configuration Updates for 3-Host Setup
+
+**Host 1 - `configs/process_a.json`:**
+```json
+{
+  "process_id": "A",
+  "role": "leader",
+  "port": 50051,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "B",
+      "host": "192.168.1.102",  // ← Host 2 IP
+      "port": 50052
+    },
+    {
+      "process_id": "E",
+      "host": "192.168.1.103",  // ← Host 3 IP
+      "port": 50055
+    }
+  ]
+}
+```
+
+**Host 2 - `configs/process_b.json`:**
+```json
+{
+  "process_id": "B",
+  "role": "team_leader",
+  "team": "green",
+  "port": 50052,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "C",
+      "host": "localhost",  // ← C is on same host
+      "port": 50053
+    }
+  ],
+  "data_partition": ["20200810", "20200811", ..., "20200822"]
+}
+```
+
+**Host 3 - `configs/process_e.json`:**
+```json
+{
+  "process_id": "E",
+  "role": "team_leader",
+  "team": "pink",
+  "port": 50055,
+  "host": "0.0.0.0",
+  "edges": [
+    {
+      "process_id": "D",
+      "host": "localhost",  // ← D is on same host
+      "port": 50054
+    },
+    {
+      "process_id": "F",
+      "host": "localhost",  // ← F is on same host
+      "port": 50056
+    }
+  ],
+  "data_partition": ["20200908", "20200909", ..., "20200913"]
+}
+```
+
+#### Startup Sequence for 3-Host Setup
+
+```bash
+# On Host 3 - Start Pink team processes
+cd CMPE-275-Mini-2
+./build/team_leader_server ./configs/process_d.json > logs/process_d.log 2>&1 &
+./build/team_leader_server ./configs/process_e.json > logs/process_e.log 2>&1 &
+python3 src/servers/team_pink/worker_server.py ./configs/process_f.json > logs/process_f.log 2>&1 &
+
+# On Host 2 - Start Green team processes
+cd CMPE-275-Mini-2
+./build/team_leader_server ./configs/process_b.json > logs/process_b.log 2>&1 &
+./build/worker_server ./configs/process_c.json > logs/process_c.log 2>&1 &
+
+# On Host 1 - Start Leader (wait 5 seconds after starting other hosts)
+cd CMPE-275-Mini-2
+./build/leader_server ./configs/process_a.json > logs/process_a.log 2>&1 &
+
+# Run query from any client
+./build/fire_client 192.168.1.101:50051 --start 20200810 --end 20200924
+```
+
+---
+
+### Multi-Host Verification Checklist
+
+#### ✅ Network Connectivity
+- [ ] All hosts can ping each other
+  ```bash
+  ping 192.168.1.101  # From Host 2/3 to Host 1
+  ping 192.168.1.102  # From Host 1/3 to Host 2
+  ping 192.168.1.103  # From Host 1/2 to Host 3
+  ```
+- [ ] Firewall ports 50051-50056 are open
+  ```bash
+  # From Host 1, test connection to Host 2
+  telnet 192.168.1.102 50052
+  ```
+
+#### ✅ Configuration Verification
+- [ ] All config files updated with correct IP addresses
+- [ ] Data directory synchronized across all hosts
+  ```bash
+  # On each host
+  ls -la fire-data/ | wc -l  # Should show same number of directories
+  ```
+
+#### ✅ Process Startup Verification
+- [ ] Processes on remote hosts started first
+- [ ] Leader (Process A) started last
+- [ ] Check logs for "Connected successfully" messages
+  ```bash
+  # On Host 1
+  grep -i "connected" logs/process_a.log
+
+  # On Host 2
+  grep -i "listening" logs/process_b.log
+  ```
+
+#### ✅ End-to-End Query Verification
+- [ ] Query spanning all hosts completes successfully
+- [ ] Results include records from all remote processes
+- [ ] No "connection refused" or timeout errors
+
+---
+
+### Multi-Host Troubleshooting
+
+#### Issue: "Connection refused" to remote host
+
+**Diagnosis:**
+```bash
+# On remote host, check if process is listening
+lsof -i :50052
+
+# From client host, test connectivity
+telnet <remote-host-ip> 50052
+```
+
+**Solutions:**
+1. Check firewall rules are configured correctly
+2. Verify process is running on remote host
+3. Ensure host/IP in config file is correct
+4. Check network connectivity (`ping <remote-host>`)
+
+#### Issue: "Failed to connect to Process X"
+
+**Check logs on both sides:**
+```bash
+# On leader host
+cat logs/process_a.log | grep -i error
+
+# On worker host
+cat logs/process_b.log | grep -i error
+```
+
+**Common causes:**
+- Wrong IP address in config file
+- Process on remote host not started
+- Firewall blocking connection
+- Network route not available
+
+#### Issue: Partial results (missing data from some hosts)
+
+**Verify all processes are running:**
+```bash
+# On each host
+ps aux | grep server | grep -v grep
+
+# Should see processes for that host
+```
+
+**Check process logs for errors:**
+```bash
+# On each host
+tail -f logs/process_*.log
+```
+
+---
+
+### Performance Considerations for Multi-Host
+
+1. **Network Latency**: Expect 10-50ms additional latency per network hop
+2. **Bandwidth**: gRPC streaming is efficient, but large result sets benefit from high bandwidth
+3. **Load Distribution**: Distribute processes to balance CPU/memory across hosts
+
+**Example Performance Metrics (2-host setup):**
+- Single-host query: ~40ms for 1K records
+- Multi-host query: ~80-120ms for 1K records (network overhead)
+- Large query (1M records): Network becomes bottleneck at ~100Mbps
 
 ---
 
@@ -386,7 +826,6 @@ CMPE-275-Mini-2/
 ├── stop_all.sh                       # Stop all processes
 ├── clean.sh                          # Clean all build artifacts
 ├── requirements.txt                  # Python dependencies
-├── .env.example                      # Environment variable template
 ├── .gitignore                        # Git ignore rules
 └── README.md                         # This file
 ```
