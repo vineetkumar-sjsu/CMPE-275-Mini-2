@@ -72,18 +72,21 @@ set(GRPC_LIBS
 # Leader Server (Process A)
 add_executable(leader_server
     src/servers/leader/leader_server.cpp
+    src/common/metrics.cpp
 )
 target_link_libraries(leader_server ${GRPC_LIBS})
 
 # Team Leader Server (Processes B, D, E)
 add_executable(team_leader_server
     src/servers/team_green/team_leader_server.cpp
+    src/common/metrics.cpp
 )
 target_link_libraries(team_leader_server ${GRPC_LIBS})
 
 # Worker Server (Processes C, D - C++ implementation)
 add_executable(worker_server
     src/servers/team_green/worker_server.cpp
+    src/common/metrics.cpp
 )
 target_link_libraries(worker_server ${GRPC_LIBS})
 

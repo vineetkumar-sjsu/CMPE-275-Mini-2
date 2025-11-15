@@ -45,11 +45,32 @@ class WorkerServiceImpl(fire_query_pb2_grpc.FireQueryServiceServicer):
         print(f"Listening on {config['listen_host']}:{config['listen_port']}")
         print(f"Data partition: {' '.join(self.owned_dates)}")
 
+        # Metrics log path
+        self.metrics_log = os.path.join(os.path.dirname(__file__), '../../../logs/metrics.log')
+
+    def _log_event(self, event, request_id="", queue_depth=-1, active_count=-1, chunk_number=-1, records=-1, extra=""):
+        try:
+            wall_ms = int(time.time() * 1000)
+            steady_ms = int(time.monotonic() * 1000)
+            pid = os.getpid()
+            safe_extra = str(extra).replace('\n', ' ').replace('\r', ' ')
+            line = f"{wall_ms},{steady_ms},{event},{request_id},{self.process_id},{self.team},{pid},{queue_depth},{active_count},{chunk_number},{records},\"{safe_extra}\"\n"
+            with open(self.metrics_log, 'a') as f:
+                # Write header if file appears empty
+                if f.tell() == 0:
+                    f.write('wall_ms,steady_ms,event,request_id,process,role,pid,queue_depth,active_count,chunk_number,records,extra\n')
+                f.write(line)
+        except Exception:
+            pass
+
     def DelegateQuery(self, request, context):
         """Handle delegated query from team leader"""
         print(f"\n[Worker {self.process_id}] Received delegation {request.request_id} from {request.delegating_process}")
 
         self.pending_requests += 1
+
+        # Metrics: received delegation
+        self._log_event('RECEIVED_DELEGATION', request.request_id, self.pending_requests, 1, -1, -1, request.delegating_process)
 
         # Deserialize original query
         original_query = fire_query_pb2.QueryRequest()
@@ -80,6 +101,8 @@ class WorkerServiceImpl(fire_query_pb2_grpc.FireQueryServiceServicer):
 
         print(f"  [Worker {self.process_id}] Loaded {len(records)} records in {duration:.0f}ms")
 
+        # Metrics: loaded records
+        self._log_event('LOADED_RECORDS', request.request_id, self.pending_requests, 1, -1, len(records), 'loaded by python worker')
         # Send records in chunks
         chunk_count = 0
         for i in range(0, len(records), self.chunk_size):
@@ -97,10 +120,19 @@ class WorkerServiceImpl(fire_query_pb2_grpc.FireQueryServiceServicer):
                 record = response.records.add()
                 self._populate_fire_record(record, record_data)
 
-            yield response
+            try:
+                yield response
 
-            print(f"  [Worker {self.process_id}] Sent chunk {chunk_count} with {len(chunk_records)} records")
-            chunk_count += 1
+                # Metrics: chunk sent (best-effort: generator yielded)
+                self._log_event('WORKER_CHUNK_SENT', request.request_id, self.pending_requests, 1, chunk_count, len(chunk_records), self.process_id)
+
+                print(f"  [Worker {self.process_id}] Sent chunk {chunk_count} with {len(chunk_records)} records")
+                chunk_count += 1
+            except Exception as e:
+                # If sending fails (client disconnect or other), log and stop
+                self._log_event('WORKER_CHUNK_SEND_ERROR', request.request_id, self.pending_requests, 1, chunk_count, len(chunk_records), str(e))
+                print(f"  [Worker {self.process_id}] Error sending chunk {chunk_count}: {e}")
+                break
 
             # Simulate processing time
             time.sleep(0.05)

@@ -17,6 +17,7 @@
 #include "../../common/config.hpp"
 #include "../../common/fire_data_loader.hpp"
 #include "../../shmem/status_manager.hpp"
+#include "../../common/metrics.hpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -53,6 +54,9 @@ public:
 
             std::cout << "Connected to team leader " << edge.to << " (" << edge.team << ") at " << target << std::endl;
         }
+
+        // Initialize metrics logging for this process
+        metrics::init_with_dir("logs", config_.process_id, config_.role);
     }
 
     Status QueryFire(ServerContext* context,
@@ -70,6 +74,9 @@ public:
             status_mgr_.updateProcessStatus(config_.process_id, pending_requests_, 1, completed_requests_);
         }
 
+        // Metrics: enqueue event
+        metrics::log_event("ENQUEUE", request->request_id(), pending_requests_, 1, -1, -1, "received at leader");
+
         // Determine which team(s) to delegate to based on load balancing
         std::vector<std::string> teams_to_query = selectTeamsForQuery(request);
 
@@ -82,6 +89,8 @@ public:
         // Collect responses from teams and stream to client
         int total_chunk_number = 0;
         int total_records = 0;
+
+    metrics::log_event("START_DELEGATE", request->request_id(), pending_requests_, 1, -1, -1, "delegating to teams");
 
         for (const auto& team_name : teams_to_query) {
             // Find the team leader for this team
@@ -133,8 +142,12 @@ public:
                 if (!writer->Write(query_resp)) {
                     std::cerr << "[Leader] Client disconnected during streaming" << std::endl;
                     reader->Finish();
+                    metrics::log_event("CLIENT_DISCONNECT", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), "client disconnected during streaming");
                     return Status::CANCELLED;
                 }
+
+                // Metrics: chunk relay (only after successful write)
+                metrics::log_event("CHUNK_RELAY", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), delegation_resp.responding_process());
 
                 std::cout << "  Sent chunk " << query_resp.chunk_number()
                           << " with " << query_resp.records_size() << " records from "
@@ -156,7 +169,15 @@ public:
         final_resp.set_is_final(true);
         final_resp.set_total_records(total_records);
         final_resp.set_source_process(config_.process_id);
-        writer->Write(final_resp);
+        if (!writer->Write(final_resp)) {
+            std::cerr << "[Leader] Client disconnected while sending final chunk" << std::endl;
+            metrics::log_event("CLIENT_DISCONNECT_FINAL", request->request_id(), pending_requests_, 1, final_resp.chunk_number(), final_resp.total_records(), "client disconnected on final chunk");
+            return Status::CANCELLED;
+        }
+
+        metrics::log_event("FINAL_CHUNK", request->request_id(), pending_requests_, 1, final_resp.chunk_number(), final_resp.total_records(), "final from leader");
+
+        metrics::log_event("FINISH", request->request_id(), pending_requests_, 1, -1, total_records, "query complete at leader");
 
         std::cout << "[Leader] Query " << request->request_id() << " complete. "
                   << "Sent " << (total_chunk_number + 1) << " chunks, "
@@ -259,8 +280,10 @@ int main(int argc, char** argv) {
         RunLeaderServer(argv[1]);
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        metrics::shutdown();
         return 1;
     }
 
+    metrics::shutdown();
     return 0;
 }
