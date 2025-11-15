@@ -39,9 +39,9 @@ ${BUILD_DIR}/team_leader_server ${CONFIG_DIR}/process_e.json \
 echo "  PID: $! (check logs/process_e.log)"
 sleep 1
 
-# Start Process D (Team Leader/Worker - Pink)
-echo "Starting Process D (Team Leader - Pink)..."
-${BUILD_DIR}/team_leader_server ${CONFIG_DIR}/process_d.json \
+# Start Process D (Worker - Pink)
+echo "Starting Process D (Worker - Team Pink)..."
+${BUILD_DIR}/worker_server ${CONFIG_DIR}/process_d.json \
     > ${LOG_DIR}/process_d.log 2>&1 &
 echo "  PID: $! (check logs/process_d.log)"
 sleep 1

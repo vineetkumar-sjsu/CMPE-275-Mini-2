@@ -1,17 +1,17 @@
 {
   "process_id": "D",
-  "role": "team_leader",
+  "role": "worker",
   "listen_host": "0.0.0.0",
   "listen_port": 50054,
   "data_path": "./fire-data",
   "team": "pink",
-  "is_team_leader": true,
+  "is_team_leader": false,
   "edges": [
     {
       "to": "B",
       "host": "localhost",
       "port": 50052,
-      "relationship": "peer_team_leader",
+      "relationship": "status_peer",
       "team": "green"
     }
   ],
