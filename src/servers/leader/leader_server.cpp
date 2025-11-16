@@ -5,6 +5,10 @@
 #include <chrono>
 #include <map>
 #include <mutex>
+#include <queue>
+#include <vector>
+#include <atomic>
+#include <condition_variable>
 
 #include <grpc/grpc.h>
 #include <grpcpp/server.h>
@@ -37,6 +41,117 @@ using firequery::DelegationResponse;
 using firequery::CancelRequest;
 using firequery::CancelResponse;
 using firequery::FireRecord;
+
+// Thread-safe queue for buffering chunks from team leaders
+template<typename T>
+class ThreadSafeQueue {
+public:
+    ThreadSafeQueue() = default;
+    
+    // Move constructor
+    ThreadSafeQueue(ThreadSafeQueue&& other) noexcept {
+        std::lock_guard<std::mutex> lock(other.mutex_);
+        queue_ = std::move(other.queue_);
+        finished_ = other.finished_;
+    }
+    
+    // Move assignment
+    ThreadSafeQueue& operator=(ThreadSafeQueue&& other) noexcept {
+        if (this != &other) {
+            // lock both mutexes without deadlock
+            std::scoped_lock lock(mutex_, other.mutex_);
+            queue_ = std::move(other.queue_);
+            finished_ = other.finished_;
+        }
+        return *this;
+    }
+    
+    // Delete copy operations
+    ThreadSafeQueue(const ThreadSafeQueue&) = delete;
+    ThreadSafeQueue& operator=(const ThreadSafeQueue&) = delete;
+
+    void push(const T& item) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.push(item);
+        condition_.notify_one();
+    }
+
+    // move-push
+    void push(T&& item) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.push(std::move(item));
+        condition_.notify_one();
+    }
+
+    bool try_pop(T& item) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (queue_.empty()) {
+            return false;
+        }
+        item = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    // Wait for an item up to the specified timeout. Returns true if an item was popped.
+    template<typename Rep, typename Period>
+    bool wait_pop_for(T& item, const std::chrono::duration<Rep, Period>& rel_time) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!condition_.wait_for(lock, rel_time, [this]() { return !queue_.empty() || finished_; })) {
+            return false;
+        }
+
+        if (queue_.empty()) {
+            return false;
+        }
+
+        item = queue_.front();
+        queue_.pop();
+        return true;
+    }
+
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.empty();
+    }
+
+    void set_finished() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        finished_ = true;
+        condition_.notify_all();
+    }
+
+    bool is_finished() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return finished_ && queue_.empty();
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::queue<T> queue_;
+    std::condition_variable condition_;
+    bool finished_ = false;
+};
+
+// Structure to hold team stream information
+struct TeamReader {
+    std::string team_name;
+    std::string team_leader_id;
+    std::unique_ptr<ClientContext> context;
+    std::unique_ptr<grpc::ClientReader<DelegationResponse>> reader;
+    ThreadSafeQueue<DelegationResponse> buffer;
+    std::atomic<bool> finished{false};
+    std::atomic<bool> error_occurred{false};
+    Status finish_status;
+
+    // Make it movable (default move constructor/assignment should work)
+    TeamReader() = default;
+    TeamReader(TeamReader&&) = default;
+    TeamReader& operator=(TeamReader&&) = default;
+    // Delete copy operations since we have unique_ptr members
+    TeamReader(const TeamReader&) = delete;
+    TeamReader& operator=(const TeamReader&) = delete;
+};
 
 class LeaderServiceImpl final : public FireQueryService::Service {
 public:
@@ -86,78 +201,164 @@ public:
         }
         std::cout << std::endl;
 
-        // Collect responses from teams and stream to client
+        // Collect responses from teams and stream to client using round-robin
         int total_chunk_number = 0;
         int total_records = 0;
 
-    metrics::log_event("START_DELEGATE", request->request_id(), pending_requests_, 1, -1, -1, "delegating to teams");
+        metrics::log_event("START_DELEGATE", request->request_id(), pending_requests_, 1, -1, -1, "delegating to teams");
+
+        // Prepare delegation request
+        DelegationRequest delegation_req;
+        delegation_req.set_request_id(request->request_id());
+        delegation_req.set_delegating_process(config_.process_id);
+        std::string serialized_query;
+        request->SerializeToString(&serialized_query);
+        delegation_req.set_original_query(serialized_query);
+
+        // Open all team streams simultaneously
+        std::vector<std::unique_ptr<TeamReader>> team_readers;
+        std::vector<std::thread> reader_threads;
 
         for (const auto& team_name : teams_to_query) {
-            // Find the team leader for this team
             std::string team_leader_id = getTeamLeader(team_name);
             if (team_leader_id.empty()) {
                 std::cerr << "[Leader] No team leader found for team: " << team_name << std::endl;
                 continue;
             }
 
-            // Delegate query to team leader
-            DelegationRequest delegation_req;
-            delegation_req.set_request_id(request->request_id());
-            delegation_req.set_delegating_process(config_.process_id);
-
-            // Serialize original query
-            std::string serialized_query;
-            request->SerializeToString(&serialized_query);
-            delegation_req.set_original_query(serialized_query);
-
-            // Call team leader
-            ClientContext client_ctx;
             auto stub_iter = team_leader_stubs_.find(team_leader_id);
             if (stub_iter == team_leader_stubs_.end()) {
                 std::cerr << "[Leader] No stub for team leader: " << team_leader_id << std::endl;
                 continue;
             }
 
-            std::unique_ptr<grpc::ClientReader<DelegationResponse>> reader(
-                stub_iter->second->DelegateQuery(&client_ctx, delegation_req));
+            // Create team reader
+            auto team_reader = std::make_unique<TeamReader>();
+            team_reader->team_name = team_name;
+            team_reader->team_leader_id = team_leader_id;
+            team_reader->context = std::make_unique<ClientContext>();
+            team_reader->reader = stub_iter->second->DelegateQuery(team_reader->context.get(), delegation_req);
+            
+            team_readers.push_back(std::move(team_reader));
+        }
 
-            // Stream responses from team leader to client
-            DelegationResponse delegation_resp;
-            while (reader->Read(&delegation_resp)) {
-                QueryResponse query_resp;
-                query_resp.set_request_id(request->request_id());
-                query_resp.set_chunk_number(total_chunk_number++);
-                query_resp.set_total_chunks(-1); // Unknown until final chunk
-                query_resp.set_is_final(false);
-                query_resp.set_source_process(delegation_resp.responding_process());
+        // Shared cancellation flag for reader threads
+        std::atomic<bool> cancel_requested{false};
 
-                // Copy records
-                for (const auto& record : delegation_resp.records()) {
-                    auto* new_record = query_resp.add_records();
-                    new_record->CopyFrom(record);
-                    total_records++;
+        // Start reader threads for each team
+        for (size_t i = 0; i < team_readers.size(); i++) {
+            reader_threads.emplace_back([&team_readers, i, &cancel_requested]() {
+                TeamReader& reader = *team_readers[i];
+                DelegationResponse chunk;
+
+                // Read loop: break if cancellation requested or read EOF/error
+                while (!cancel_requested.load() && reader.reader->Read(&chunk)) {
+                    reader.buffer.push(chunk);
                 }
 
-                // Stream to client
-                if (!writer->Write(query_resp)) {
-                    std::cerr << "[Leader] Client disconnected during streaming" << std::endl;
-                    reader->Finish();
-                    metrics::log_event("CLIENT_DISCONNECT", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), "client disconnected during streaming");
-                    return Status::CANCELLED;
+                // If cancellation was requested, attempt to finish the reader gracefully
+                reader.finished = true;
+                reader.finish_status = reader.reader->Finish();
+                reader.buffer.set_finished();
+
+                if (!reader.finish_status.ok()) {
+                    reader.error_occurred = true;
+                    std::cerr << "[Leader] Team leader " << reader.team_leader_id
+                              << " returned error: " << reader.finish_status.error_message() << std::endl;
                 }
+            });
+        }
 
-                // Metrics: chunk relay (only after successful write)
-                metrics::log_event("CHUNK_RELAY", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), delegation_resp.responding_process());
-
-                std::cout << "  Sent chunk " << query_resp.chunk_number()
-                          << " with " << query_resp.records_size() << " records from "
-                          << query_resp.source_process() << std::endl;
+        // Round-robin through team buffers
+        bool all_finished = false;
+        while (!all_finished) {
+            // If server context was cancelled, request cancellation of readers and break
+            if (context->IsCancelled()) {
+                std::cerr << "[Leader] Server context cancelled by client. Cancelling delegated reads..." << std::endl;
+                cancel_requested.store(true);
+                for (auto& tr : team_readers) {
+                    if (tr->context) tr->context->TryCancel();
+                }
+                break;
             }
 
-            Status delegation_status = reader->Finish();
-            if (!delegation_status.ok()) {
-                std::cerr << "[Leader] Team leader " << team_leader_id
-                          << " returned error: " << delegation_status.error_message() << std::endl;
+            all_finished = true;
+            bool any_data_this_round = false;
+
+            for (size_t i = 0; i < team_readers.size(); i++) {
+                TeamReader& team_reader = *team_readers[i];
+
+                // Skip if this team is finished and buffer is empty
+                if (team_reader.buffer.is_finished()) {
+                    continue;
+                }
+
+                all_finished = false;
+
+                // Wait up to a short duration for data to appear to avoid busy-waiting.
+                DelegationResponse delegation_resp;
+                if (team_reader.buffer.wait_pop_for(delegation_resp, std::chrono::milliseconds(10))) {
+                    any_data_this_round = true;
+
+                    QueryResponse query_resp;
+                    query_resp.set_request_id(request->request_id());
+                    query_resp.set_chunk_number(total_chunk_number++);
+                    query_resp.set_total_chunks(-1); // Unknown until final chunk
+                    query_resp.set_is_final(false);
+                    query_resp.set_source_process(delegation_resp.responding_process());
+
+                    // Copy records
+                    for (const auto& record : delegation_resp.records()) {
+                        auto* new_record = query_resp.add_records();
+                        new_record->CopyFrom(record);
+                        total_records++;
+                    }
+
+                    // Stream to client
+                    if (!writer->Write(query_resp)) {
+                        std::cerr << "[Leader] Client disconnected during streaming" << std::endl;
+                        metrics::log_event("CLIENT_DISCONNECT", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), "client disconnected during streaming");
+
+                        // Cancel all readers and wait for threads
+                        cancel_requested.store(true);
+                        for (auto& tr : team_readers) {
+                            if (tr->context) tr->context->TryCancel();
+                        }
+                        for (auto& thread : reader_threads) {
+                            if (thread.joinable()) {
+                                thread.join();
+                            }
+                        }
+                        return Status::CANCELLED;
+                    }
+
+                    // Metrics: chunk relay (only after successful write)
+                    metrics::log_event("CHUNK_RELAY", request->request_id(), pending_requests_, 1, query_resp.chunk_number(), query_resp.records_size(), delegation_resp.responding_process());
+
+                    std::cout << "  Sent chunk " << query_resp.chunk_number()
+                              << " with " << query_resp.records_size() << " records from "
+                              << query_resp.source_process() << " (team: " << team_reader.team_name << ")" << std::endl;
+                }
+            }
+
+            // If no data was available this round, yield to avoid busy-waiting
+            if (!any_data_this_round && !all_finished) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+
+        // Wait for all reader threads to complete
+        for (auto& thread : reader_threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+
+        // Check for errors
+        for (const auto& team_reader : team_readers) {
+            if (team_reader->error_occurred && !team_reader->finish_status.ok()) {
+                std::cerr << "[Leader] Team leader " << team_reader->team_leader_id
+                          << " error: " << team_reader->finish_status.error_message() << std::endl;
             }
         }
 
