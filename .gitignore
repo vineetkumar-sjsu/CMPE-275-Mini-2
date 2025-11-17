@@ -39,6 +39,7 @@ ENV/
 
 # Log files
 logs/*.log
+logs/*.csv
 *.log
 
 # Compiled Object files

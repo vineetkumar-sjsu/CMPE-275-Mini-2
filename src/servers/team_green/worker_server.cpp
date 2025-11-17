@@ -15,6 +15,7 @@
 #include "../../common/config.hpp"
 #include "../../common/fire_data_loader.hpp"
 #include "../../shmem/status_manager.hpp"
+#include "../../common/metrics.hpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -47,6 +48,9 @@ public:
             std::cout << date << " ";
         }
         std::cout << std::endl;
+
+        // Initialize metrics logging for this process
+        metrics::init_with_dir("logs", config_.process_id, config_.role);
     }
 
     Status DelegateQuery(ServerContext* context,
@@ -55,6 +59,8 @@ public:
 
         std::cout << "\n[Worker " << config_.process_id << "] Received delegation "
                   << request->request_id() << " from " << request->delegating_process() << std::endl;
+
+        metrics::log_event("RECEIVED_DELEGATION", request->request_id(), pending_requests_, 1, -1, -1, request->delegating_process());
 
         // Update status
         {
@@ -105,6 +111,8 @@ public:
         std::cout << "  [Worker " << config_.process_id << "] Loaded " << records.size()
                   << " records in " << duration.count() << "ms" << std::endl;
 
+        metrics::log_event("LOADED_RECORDS", request->request_id(), pending_requests_, 1, -1, records.size(), "loaded by worker");
+
         // Send in chunks
         int chunk_size = config_.chunk_config.default_chunk_size;
         int chunk_count = 0;
@@ -126,11 +134,16 @@ public:
                 std::cerr << "  [Worker " << config_.process_id << "] Failed to write chunk" << std::endl;
                 {
                     std::lock_guard<std::mutex> lock(status_mutex_);
+                    // Metrics: failed to send worker chunk upstream
+                    metrics::log_event("WORKER_CHUNK_SEND_ERROR", request->request_id(), pending_requests_, 1, chunk_resp.chunk_number(), chunk_resp.records_size(), config_.process_id);
                     pending_requests_--;
                     status_mgr_.updateProcessStatus(config_.process_id, pending_requests_, 1, completed_requests_);
                 }
                 return Status::CANCELLED;
             }
+
+            // Metrics: worker chunk sent (only after successful write)
+            metrics::log_event("WORKER_CHUNK_SENT", request->request_id(), pending_requests_, 1, chunk_resp.chunk_number(), chunk_resp.records_size(), config_.process_id);
 
             std::cout << "  [Worker " << config_.process_id << "] Sent chunk " << chunk_count - 1
                       << " with " << chunk_resp.records_size() << " records" << std::endl;
@@ -243,8 +256,10 @@ int main(int argc, char** argv) {
         RunWorkerServer(argv[1]);
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        metrics::shutdown();
         return 1;
     }
 
+    metrics::shutdown();
     return 0;
 }
