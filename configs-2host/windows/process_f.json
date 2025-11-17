@@ -1,0 +1,19 @@
+{
+  "process_id": "F",
+  "role": "worker",
+  "listen_host": "0.0.0.0",
+  "listen_port": 50056,
+  "data_path": "./fire-data",
+  "team": "pink",
+  "is_team_leader": false,
+  "edges": [],
+  "data_partitioning": {
+    "strategy": "date_range",
+    "owned_dates": ["20200914", "20200915", "20200916", "20200917", "20200918", "20200919", "20200920", "20200921", "20200922", "20200923", "20200924"]
+  },
+  "chunk_config": {
+    "default_chunk_size": 500,
+    "max_chunk_size": 2000,
+    "min_chunk_size": 100
+  }
+}

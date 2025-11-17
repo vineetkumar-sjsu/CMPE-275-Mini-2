@@ -63,10 +63,12 @@ include_directories(${PROTO_GENERATED_DIR})
 
 # Common gRPC libraries
 set(GRPC_LIBS
+    fire_query_proto
     grpc++
     grpc
+    gpr
+    absl_synchronization
     ${Protobuf_LIBRARIES}
-    fire_query_proto
 )
 
 # Leader Server (Process A)
