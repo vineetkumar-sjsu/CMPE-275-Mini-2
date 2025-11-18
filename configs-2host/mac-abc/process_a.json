@@ -16,7 +16,7 @@
     },
     {
       "to": "E",
-      "host": "WINDOWS_IP_HERE",
+      "host": "169.254.164.150",
       "port": 50055,
       "relationship": "team_leader",
       "team": "pink"
