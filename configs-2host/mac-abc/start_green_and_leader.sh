@@ -13,11 +13,12 @@ echo "========================================"
 export FIRE_DATA_PATH="$(pwd)/fire-data"
 echo "FIRE_DATA_PATH=$FIRE_DATA_PATH"
 
-# Create logs directory
-mkdir -p logs
-
-# Build path (adjust if needed)
+# Set config path
+SCRIPT_DIR="$(pwd)"
+BASE_DIR="${SCRIPT_DIR}"
 BUILD_DIR="$(pwd)/build"
+LOG_DIR="$(pwd)/logs"
+CONFIG_DIR="$(pwd)/configs-2host/mac-abc"
 
 echo ""
 echo "Starting processes..."
@@ -25,21 +26,21 @@ echo ""
 
 # Start Process C (Worker) - Port 50053
 echo "Starting Process C (Worker - Team Green)..."
-nohup $BUILD_DIR/worker_server configs-2host/mac/process_c.json > logs/process_c.log 2>&1 &
+nohup $BUILD_DIR/worker_server ${CONFIG_DIR}/process_c.json > ${LOG_DIR}/process_c.log 2>&1 &
 PID_C=$!
 echo "  PID: $PID_C (check logs/process_c.log)"
 sleep 2
 
 # Start Process B (Team Leader) - Port 50052
 echo "Starting Process B (Team Leader - Green)..."
-nohup $BUILD_DIR/team_leader_server configs-2host/mac/process_b.json > logs/process_b.log 2>&1 &
+nohup $BUILD_DIR/team_leader_server ${CONFIG_DIR}/process_b.json > ${LOG_DIR}/process_b.log 2>&1 &
 PID_B=$!
 echo "  PID: $PID_B (check logs/process_b.log)"
 sleep 2
 
 # Start Process A (Leader) - Port 50051
 echo "Starting Process A (Leader)..."
-nohup $BUILD_DIR/leader_server configs-2host/mac/process_a.json > logs/process_a.log 2>&1 &
+nohup $BUILD_DIR/leader_server ${CONFIG_DIR}/process_a.json > ${LOG_DIR}/process_a.log 2>&1 &
 PID_A=$!
 echo "  PID: $PID_A (check logs/process_a.log)"
 sleep 3
