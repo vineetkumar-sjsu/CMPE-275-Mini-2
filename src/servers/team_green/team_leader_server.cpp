@@ -16,6 +16,7 @@
 #include "../../common/config.hpp"
 #include "../../common/fire_data_loader.hpp"
 #include "../../shmem/status_manager.hpp"
+#include "../../common/metrics.hpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -44,7 +45,7 @@ public:
                   << " (Team " << config_.team << ") starting..." << std::endl;
         std::cout << "Listening on " << config_.listen_host << ":" << config_.listen_port << std::endl;
 
-        // Create gRPC clients to workers
+        // Create gRPC clients to workers only (peer_team_leader relationships are control-plane only)
         for (const auto& edge : config_.edges) {
             if (edge.relationship == "worker") {
                 std::string target = edge.host + ":" + std::to_string(edge.port);
@@ -61,6 +62,9 @@ public:
             std::cout << date << " ";
         }
         std::cout << std::endl;
+
+        // Initialize metrics logging for this process
+        metrics::init_with_dir("logs", config_.process_id, config_.role);
     }
 
     Status DelegateQuery(ServerContext* context,
@@ -69,6 +73,8 @@ public:
 
         std::cout << "\n[Team Leader " << config_.process_id << "] Received delegation "
                   << request->request_id() << " from " << request->delegating_process() << std::endl;
+
+        metrics::log_event("RECEIVED_DELEGATION", request->request_id(), pending_requests_, worker_stubs_.size(), -1, -1, request->delegating_process());
 
         // Update status
         {
@@ -199,11 +205,19 @@ private:
                 convertToProto(records[j], rec);
             }
 
+            // Metrics: local chunk sent
+            metrics::log_event("DELEGATION_CHUNK_SENT", request_id, pending_requests_, worker_stubs_.size(), chunk_resp.chunk_number(), chunk_resp.records_size(), config_.process_id);
+
             if (!writer->Write(chunk_resp)) {
                 std::cerr << "  [Team Leader " << config_.process_id
                           << "] Failed to write chunk" << std::endl;
+                // Metrics: failed to send delegation chunk upstream
+                metrics::log_event("DELEGATION_CHUNK_SEND_ERROR", request_id, pending_requests_, worker_stubs_.size(), chunk_resp.chunk_number(), chunk_resp.records_size(), config_.process_id);
                 return;
             }
+
+            // Metrics: local chunk sent (only after successful write)
+            metrics::log_event("DELEGATION_CHUNK_SENT", request_id, pending_requests_, worker_stubs_.size(), chunk_resp.chunk_number(), chunk_resp.records_size(), config_.process_id);
 
             std::cout << "  [Team Leader " << config_.process_id << "] Sent chunk "
                       << chunk_count - 1 << " with " << chunk_resp.records_size() << " records" << std::endl;
@@ -288,8 +302,10 @@ int main(int argc, char** argv) {
         RunTeamLeaderServer(argv[1]);
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
+        metrics::shutdown();
         return 1;
     }
 
+    metrics::shutdown();
     return 0;
 }

@@ -1,0 +1,345 @@
+================================================================================
+                    2-HOST DISTRIBUTED DEPLOYMENT
+                    NETWORK & PROCESS TOPOLOGY
+================================================================================
+
+PHYSICAL NETWORK LAYOUT:
+========================
+
+    ┌─────────────────────────────────────────────────────────────┐
+    │                  Netgear 5-Port Gigabit Switch              │
+    │                                                             │
+    │  [Port 1]    [Port 2]    [Port 3]    [Port 4]    [Port 5]  │
+    └─────┬────────────┬─────────────────────────────────────────┘
+          │            │
+          │            │
+    ┌─────▼──────┐  ┌──▼─────────┐
+    │  MacBook   │  │  Windows   │
+    │            │  │  (WSL)     │
+    │ 192.168.1. │  │ 192.168.1. │
+    │    101     │  │    100     │
+    └────────────┘  └────────────┘
+    (example IPs - yours may differ)
+
+
+LOGICAL PROCESS TOPOLOGY:
+==========================
+
+┌────────────────────────────────────────────────────────────────────┐
+│                           CLIENT                                   │
+│                      (MacBook Terminal)                            │
+│                                                                    │
+│               ./build/fire_client localhost:50051                  │
+└──────────────────────────────┬─────────────────────────────────────┘
+                               │
+                               │ QueryFire RPC
+                               │
+                    ┌──────────▼──────────┐
+                    │   PROCESS A         │
+                    │   (Leader)          │
+                    │   MacBook           │
+                    │   Port: 50051       │
+                    └──┬───────────────┬──┘
+                       │               │
+        ┌──────────────┘               └─────────────────┐
+        │ local RPC                            network   │
+        │ (same host)                          RPC       │
+        │                                      (Gigabit) │
+        │                                                │
+┌───────▼──────────┐                        ┌────────────▼─────────┐
+│   PROCESS B      │                        │   PROCESS E          │
+│   (Team Green    │                        │   (Team Pink         │
+│    Leader)       │                        │    Leader)           │
+│   MacBook        │                        │   Windows/WSL        │
+│   Port: 50052    │                        │   Port: 50055        │
+└───────┬──────────┘                        └────────┬─────────────┘
+        │                                            │
+        │ local RPC                                  │ local RPC
+        │                                            │
+┌───────▼──────────┐                        ┌───────┴──────┬───────┐
+│   PROCESS C      │                        │              │       │
+│   (Worker)       │                  ┌─────▼──────┐ ┌────▼─────┐ │
+│   MacBook        │                  │ PROCESS D  │ │PROCESS F │ │
+│   Port: 50053    │                  │ (Worker)   │ │(Worker-  │ │
+│   Team: Green    │                  │ Windows    │ │ Python)  │ │
+└──────────────────┘                  │ :50054     │ │Windows   │ │
+                                      │ Team: Pink │ │:50056    │ │
+                                      └────────────┘ │Team: Pink│ │
+                                                     └──────────┘ │
+                                                                  │
+
+DATA FLOW (for a query):
+========================
+
+1. Client sends QueryFire RPC to Leader A (localhost:50051)
+   └─> Message: QueryRequest with date range, filters, etc.
+
+2. Leader A receives query and creates two DelegationRequests:
+   ├─> DelegateQuery to Process B (localhost:50052) - Team Green
+   └─> DelegateQuery to Process E (192.168.1.100:50055) - Team Pink
+
+3. Process B (Team Green Leader):
+   ├─> Processes its own dates (Aug 10-22)
+   ├─> Streams chunks back to Leader A
+   └─> Delegates to Process C (localhost:50053)
+       └─> Process C processes dates (Aug 23 - Sep 1)
+           └─> Streams chunks back to Process B
+               └─> Process B relays to Leader A
+
+4. Process E (Team Pink Leader) - OVER NETWORK:
+   ├─> Processes its own dates (Sep 8-13)
+   ├─> Streams chunks back to Leader A (over network)
+   ├─> Delegates to Process D (localhost:50054)
+   │   └─> Process D processes dates (Sep 2-7)
+   │       └─> Streams chunks back to Process E
+   │           └─> Process E relays to Leader A (over network)
+   └─> Delegates to Process F (localhost:50056)
+       └─> Process F (Python) processes dates (Sep 14-24)
+           └─> Streams chunks back to Process E
+               └─> Process E relays to Leader A (over network)
+
+5. Leader A aggregates all chunks from B and E
+   └─> Streams unified response to Client
+
+
+NETWORK COMMUNICATION SUMMARY:
+==============================
+
+Local RPCs (same host, fast):
+  MacBook:
+    - Client → Process A
+    - Process A → Process B
+    - Process B → Process C
+
+  Windows:
+    - Process E → Process D
+    - Process E → Process F
+
+Network RPCs (cross-host, Gigabit LAN):
+  - Process A (Mac) → Process E (Windows)
+  - Process E (Windows) → Process A (Mac) [streaming responses]
+
+
+PORT ALLOCATION:
+================
+
+MacBook (192.168.1.101):
+  50051  →  Process A (Leader) - CLIENT CONNECTS HERE
+  50052  →  Process B (Team Green Leader)
+  50053  →  Process C (Worker - Green)
+
+Windows/WSL (192.168.1.100):
+  50055  →  Process E (Team Pink Leader) - LEADER CONNECTS HERE
+  50054  →  Process D (Worker - Pink)
+  50056  →  Process F (Worker - Pink, Python)
+
+
+DATA PARTITIONING:
+==================
+
+Process | Team  | Dates                      | Count | Host
+--------|-------|----------------------------|-------|----------
+B       | Green | 20200810 - 20200822       | 10    | MacBook
+C       | Green | 20200823 - 20200901       | 10    | MacBook
+D       | Pink  | 20200902 - 20200907       | 6     | Windows
+E       | Pink  | 20200908 - 20200913       | 6     | Windows
+F       | Pink  | 20200914 - 20200924       | 11    | Windows
+--------|-------|----------------------------|-------|----------
+TOTAL   |       | 20200810 - 20200924       | 43    | Both
+
+
+CONFIGURATION FILES:
+====================
+
+MacBook:
+  configs-2host/mac/process_a.json  → Leader config (must have Windows IP!)
+  configs-2host/mac/process_b.json  → Team Green Leader config
+  configs-2host/mac/process_c.json  → Green Worker config
+
+Windows:
+  configs-2host/windows/process_e.json  → Team Pink Leader config
+  configs-2host/windows/process_d.json  → Pink Worker config
+  configs-2host/windows/process_f.json  → Pink Worker (Python) config
+
+
+STARTUP SEQUENCE:
+=================
+
+Step 1: Start Team Pink on Windows
+  ./configs-2host/windows/start_pink_team.sh
+
+  Order: F (worker) → D (worker) → E (team leader)
+
+  Process E listens on 0.0.0.0:50055 and waits for delegations
+
+Step 2: Start Leader + Team Green on MacBook
+  ./configs-2host/mac/start_green_and_leader.sh
+
+  Order: C (worker) → B (team leader) → A (leader)
+
+  Process A connects to:
+    - Process B at localhost:50052 (local, immediate)
+    - Process E at 192.168.1.100:50055 (network, must succeed!)
+
+Step 3: Run Client on MacBook
+  ./build/fire_client localhost:50051 --start 20200810 --end 20200924
+
+  Client connects to Leader A on localhost
+
+
+NETWORK PERFORMANCE:
+====================
+
+Expected Latencies:
+  Local RPC:     <1 ms
+  Network RPC:   1-5 ms (Gigabit LAN)
+
+  Single-host query:  100-200 ms total
+  2-host query:       150-300 ms total (+network overhead)
+
+Expected Throughput:
+  Single-host:  80,000-100,000 records/sec
+  2-host:       60,000-80,000 records/sec
+
+Network Bandwidth:
+  Full dataset query: ~50-100 MB transferred
+  Gigabit LAN max:    125 MB/sec
+  Expected usage:     30-50% during query
+
+
+FAILURE SCENARIOS:
+==================
+
+If Team Pink (Windows) is unreachable:
+  - Leader A logs: "Failed to connect to team leader E"
+  - Query continues with only Team Green data
+  - Results will only include Aug 10 - Sep 1 dates
+  - Client still gets SUCCESS status with partial data
+
+If Team Green (MacBook local) fails:
+  - Leader A logs: "Failed to connect to team leader B"
+  - Query continues with only Team Pink data
+  - Results will only include Sep 2 - Sep 24 dates
+
+If Leader A fails:
+  - Client gets connection refused
+  - Entire query fails
+  - Team leaders wait for next delegation
+
+
+SHARED MEMORY:
+==============
+
+IMPORTANT: Shared memory is LOCAL to each host, NOT cross-network!
+
+MacBook shared memory (key 2275):
+  - Process A (creator)
+  - Process B (attaches)
+  - Process C (attaches)
+
+Windows shared memory (key 2275):
+  - Process E (creator)
+  - Process D (attaches)
+  - Process F (attaches)
+
+These are TWO SEPARATE shared memory segments.
+DO NOT expect cross-host status coordination via shared memory.
+
+
+FIREWALL REQUIREMENTS:
+======================
+
+MacBook:
+  Inbound: Allow ports 50051-50053
+  Outbound: Allow connections to Windows:50055
+
+Windows:
+  Inbound: Allow ports 50054-50056 (especially 50055 for Team Pink Leader)
+  Outbound: Allow responses to MacBook
+
+Test firewall:
+  From Mac: telnet <WINDOWS_IP> 50055
+  Should connect successfully if firewall is configured correctly.
+
+
+METRICS COLLECTION:
+===================
+
+Each process logs to its own metrics CSV file:
+
+MacBook (logs/ directory):
+  metrics-leader-A-*.csv
+  metrics-team_leader-B-*.csv
+  metrics-worker-C-*.csv
+
+Windows (logs/ directory):
+  metrics-team_leader-E-*.csv
+  metrics-worker-D-*.csv
+  metrics-worker-F-*.csv (Python, may have different format)
+
+For unified analysis:
+  1. Run benchmark on MacBook
+  2. Copy Windows metrics to MacBook: logs/metrics-*.csv
+  3. Run analyze_metrics.py on MacBook with all files
+
+
+IP ADDRESS PLACEHOLDER:
+=======================
+
+IN process_a.json, you MUST replace:
+  "host": "WINDOWS_IP_HERE"
+
+WITH your actual Windows IP:
+  "host": "192.168.1.100"  (example)
+
+To find Windows IP:
+  wsl hostname -I
+
+To find MacBook IP:
+  ifconfig en0 | grep inet
+
+
+VERIFICATION CHECKLIST:
+=======================
+
+Before querying:
+  [ ] Both systems connected to switch
+  [ ] GREEN link lights on switch (Gigabit, not orange 100Mbps)
+  [ ] Can ping Mac from Windows
+  [ ] Can ping Windows from Mac
+  [ ] Windows IP updated in configs-2host/mac/process_a.json
+  [ ] Team Pink started on Windows (logs show "listening on 0.0.0.0:50055")
+  [ ] Leader started on Mac (logs show "Connected to team leader E")
+  [ ] No firewall blocking errors
+
+
+SUCCESS INDICATORS:
+===================
+
+Query is successful when:
+  - Client shows: "Status: SUCCESS"
+  - Total records > 200,000 (indicates both teams responded)
+  - Records by Process shows both B/C (Mac) and D/E/F (Windows)
+  - Duration < 5 seconds
+  - No connection errors in logs
+
+
+TROUBLESHOOTING QUICK REFERENCE:
+=================================
+
+Problem: "Failed to connect to team leader E"
+  → Check Team Pink is running on Windows
+  → Verify Windows firewall allows port 50055
+  → Test: telnet <WINDOWS_IP> 50055
+
+Problem: No records from Team Pink
+  → Check fire-data exists on Windows
+  → Check Team Pink logs for errors
+  → Query only Pink dates: --start 20200914 --end 20200920
+
+Problem: Slow performance
+  → Verify Gigabit link (not 100Mbps)
+  → Check network with: ping -c 100 <WINDOWS_IP>
+  → Monitor bandwidth: nload or iftop
+
+================================================================================

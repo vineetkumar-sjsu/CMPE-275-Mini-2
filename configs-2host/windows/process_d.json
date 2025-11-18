@@ -6,15 +6,7 @@
   "data_path": "./fire-data",
   "team": "pink",
   "is_team_leader": false,
-  "edges": [
-    {
-      "to": "B",
-      "host": "localhost",
-      "port": 50052,
-      "relationship": "status_peer",
-      "team": "green"
-    }
-  ],
+  "edges": [],
   "data_partitioning": {
     "strategy": "date_range",
     "owned_dates": ["20200902", "20200903", "20200904", "20200905", "20200906", "20200907"]

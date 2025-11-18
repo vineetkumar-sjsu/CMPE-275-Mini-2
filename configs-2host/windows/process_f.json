@@ -1,23 +1,15 @@
 {
-  "process_id": "D",
+  "process_id": "F",
   "role": "worker",
   "listen_host": "0.0.0.0",
-  "listen_port": 50054,
+  "listen_port": 50056,
   "data_path": "./fire-data",
   "team": "pink",
   "is_team_leader": false,
-  "edges": [
-    {
-      "to": "B",
-      "host": "localhost",
-      "port": 50052,
-      "relationship": "status_peer",
-      "team": "green"
-    }
-  ],
+  "edges": [],
   "data_partitioning": {
     "strategy": "date_range",
-    "owned_dates": ["20200902", "20200903", "20200904", "20200905", "20200906", "20200907"]
+    "owned_dates": ["20200914", "20200915", "20200916", "20200917", "20200918", "20200919", "20200920", "20200921", "20200922", "20200923", "20200924"]
   },
   "chunk_config": {
     "default_chunk_size": 500,
